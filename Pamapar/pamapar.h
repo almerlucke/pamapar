@@ -211,6 +211,9 @@ namespace pamapar {
         }
     };
 
+    typedef std::shared_ptr<pattern> pattern_ptr;
+    typedef std::vector<pattern_ptr> pattern_vector;
+
     class terminal_string: public pattern {
     private:
         std::u32string u32_str;
@@ -218,6 +221,10 @@ namespace pamapar {
     public:
         
         terminal_string(std::string utf8_str): u32_str(utf8::utf8to32(utf8_str)) {}
+        
+        static pattern_ptr make_shared(std::string utf8_str) {
+            return pattern_ptr(new terminal_string(utf8_str));
+        }
         
         match_result match(reader& r, context& ctx) override {
             match_result result(false, r.current_position());
@@ -255,6 +262,10 @@ namespace pamapar {
     public:
         character_group(std::function<bool(rune)> is_member,
                         bool inverted = false):is_member(is_member), inverted(inverted) {}
+        
+        static pattern_ptr make_shared(std::function<bool(rune)> is_member, bool inverted = false) {
+            return pattern_ptr(new character_group(is_member, inverted));
+        }
         
         match_result match(reader &r, context& ctx) override {
             match_result result(false, r.current_position());
@@ -297,10 +308,14 @@ namespace pamapar {
 
     class alternation: public pattern {
     private:
-        std::vector<pattern*> patterns;
+        pattern_vector patterns;
         
     public:
-        alternation(std::vector<pattern*> patterns): patterns(patterns) {}
+        alternation(pattern_vector patterns): patterns(patterns) {}
+        
+        static pattern_ptr make_shared(pattern_vector patterns) {
+            return pattern_ptr(new alternation(patterns));
+        }
         
         match_result match(reader &r, context& ctx) override {
             reader::position begin_pos = r.current_position();
@@ -325,11 +340,15 @@ namespace pamapar {
 
     class concatenation: public pattern {
     private:
-        std::vector<pattern*> patterns;
+        pattern_vector patterns;
         
     public:
         concatenation() {}
-        concatenation(std::vector<pattern*> patterns): patterns(patterns) {}
+        concatenation(pattern_vector patterns): patterns(patterns) {}
+        
+        static pattern_ptr make_shared(pattern_vector patterns) {
+            return pattern_ptr(new concatenation(patterns));
+        }
         
         match_result match(reader &r, context& ctx) override {
             match_result result(false, r.current_position());
@@ -367,10 +386,14 @@ namespace pamapar {
     private:
         int min = 0;
         int max = 0;
-        pattern& p;
+        pattern_ptr p;
     
     public:
-        repetition(pattern& p, int min = 0, int max = 0): p(p), min(min), max(max) {}
+        repetition(pattern_ptr p, int min = 0, int max = 0): p(p), min(min), max(max) {}
+        
+        static pattern_ptr make_shared(pattern_ptr p, int min = 0, int max = 0) {
+            return pattern_ptr(new repetition(p, min, max));
+        }
         
         match_result match(reader &r, context &ctx) override {
             match_result result(false, r.current_position());
@@ -383,7 +406,7 @@ namespace pamapar {
                     break;
                 }
                 
-                auto sub_result = p.match(r, ctx);
+                auto sub_result = p->match(r, ctx);
                 
                 if (sub_result.match) {
                     matches.push_back(sub_result);
@@ -417,25 +440,37 @@ namespace pamapar {
     };
 
     class optional: public repetition {
-        optional(pattern& p): repetition(p, 0, 1) {}
+        optional(pattern_ptr p): repetition(p, 0, 1) {}
+        
+        static pattern_ptr make_shared(pattern_ptr p) {
+            return pattern_ptr(new optional(p));
+        }
     };
 
     class one: public repetition {
-        one(pattern& p): repetition(p, 1, 1) {}
+        one(pattern_ptr p): repetition(p, 1, 1) {}
+        
+        static pattern_ptr make_shared(pattern_ptr p) {
+            return pattern_ptr(new one(p));
+        }
     };
 
     class exception: public pattern {
     private:
-        pattern& must_match;
-        pattern& except;
+        pattern_ptr must_match;
+        pattern_ptr except;
     
     public:
-        exception(pattern& must_match, pattern& except): must_match(must_match), except(except) {}
+        exception(pattern_ptr must_match, pattern_ptr except): must_match(must_match), except(except) {}
+        
+        static pattern_ptr make_shared(pattern_ptr must_match, pattern_ptr except) {
+            return pattern_ptr(new exception(must_match, except));
+        }
         
         match_result match(reader &r, context &ctx) override {
             r.push_state();
             
-            auto result = except.match(r, ctx);
+            auto result = except->match(r, ctx);
             
             if (result.match) {
                 result.match = false;
@@ -449,7 +484,7 @@ namespace pamapar {
             
             r.pop_state();
             
-            result = must_match.match(r, ctx);
+            result = must_match->match(r, ctx);
             
             transform(result, ctx);
             
@@ -458,6 +493,10 @@ namespace pamapar {
     };
 
     class eof: public pattern {
+        static pattern_ptr make_shared() {
+            return pattern_ptr(new eof());
+        }
+        
         match_result match(reader &r, context &ctx) override {
             match_result result = match_result(r.finished());
            

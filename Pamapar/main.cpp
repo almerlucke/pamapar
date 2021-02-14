@@ -35,7 +35,24 @@ class json_string_pattern: public pamapar::concatenation {
     
 public:
     json_string_pattern() {
+        auto hex_digit = pamapar::alternation::make_shared(pamapar::pattern_vector{
+            pamapar::character_group::make_shared(pamapar::character_group::in_range('a', 'z')),
+            pamapar::character_group::make_shared(pamapar::character_group::in_range('A', 'Z')),
+            pamapar::character_group::make_shared(pamapar::character_group::in_range('0', '9'))
+        });
         
+        auto hex_pattern = pamapar::concatenation::make_shared(pamapar::pattern_vector{
+            pamapar::terminal_string::make_shared("u"),
+            pamapar::repetition::make_shared(hex_digit, 4, 4)
+        });
+        
+        auto escape_sequence = pamapar::concatenation::make_shared(pamapar::pattern_vector{
+            pamapar::terminal_string::make_shared("\\"),
+            pamapar::alternation::make_shared(pamapar::pattern_vector{
+                pamapar::character_group::make_shared(pamapar::character_group::member_of("\"\\/bfnrt")),
+                hex_pattern
+            })
+        });
     }
 };
 
@@ -45,36 +62,6 @@ public:
 
 /*
  func jsonStringPattern() Pattern {
-     hexDigit := NewAlternation(
-         []Pattern{
-             NewCharacterRange('a', 'z', false, nil),
-             NewCharacterRange('A', 'Z', false, nil),
-             NewCharacterRange('0', '9', false, nil),
-         },
-         nil,
-     )
-
-     hexPattern := NewConcatenation(
-         []Pattern{
-             NewTerminalString("u", nil),
-             NewRepetition(hexDigit, 4, 4, nil),
-         },
-         nil,
-     )
-
-     escapeSequence := NewConcatenation(
-         []Pattern{
-             NewTerminalString(`\`, nil),
-             NewAlternation(
-                 []Pattern{
-                     NewCharacterEnum(`"\/bfnrt`, false, nil),
-                     hexPattern,
-                 },
-                 nil,
-             ),
-         },
-         nil,
-     )
 
      normalCodePoint := NewCharacterGroup(func(r rune) bool {
          return unicode.IsControl(r) || r == '\\' || r == '"'
@@ -95,17 +82,18 @@ int main(int argc, const char * argv[]) {
     pamapar::context context;
     auto reader = pamapar::reader("121288z");
     
-    auto character_member_group = pamapar::character_group(pamapar::character_group::member_of("128"));
+    auto character_member_group = new pamapar::character_group(pamapar::character_group::member_of("128"));
+    auto character_member_group_ptr = std::shared_ptr<pamapar::pattern>(character_member_group);
     
-    auto repeat = pamapar::repetition(character_member_group, 3, 4);
+    auto repeat = pamapar::repetition(character_member_group_ptr, 3, 4);
     
     auto result = repeat.match(reader, context);
     
     if (result.match) {
-        auto matches = std::dynamic_pointer_cast<pamapar::matches_value>(result.value).get()->value;
+        auto matches = std::dynamic_pointer_cast<pamapar::matches_value>(result.value)->value;
         
         for (auto it = matches.begin(); it != matches.end(); ++it) {
-            auto str = std::dynamic_pointer_cast<pamapar::string_value>((*it).value).get()->value;
+            auto str = std::dynamic_pointer_cast<pamapar::string_value>((*it).value)->value;
             
             std::cout << str << std::endl;
         }
