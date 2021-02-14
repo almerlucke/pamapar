@@ -13,6 +13,7 @@
 
 #include <iostream>
 #include <vector>
+#include <memory>
 
 namespace pamapar {
     typedef char32_t rune;
@@ -156,13 +157,13 @@ namespace pamapar {
         bool match = false;
         reader::position begin_pos = reader::position();
         reader::position end_pos = reader::position();
-        match_result_value* value = nullptr;
+        std::shared_ptr<match_result_value> value;
         error err = error();
         
         match_result(bool match = false,
                      reader::position begin_pos = reader::position(),
                      reader::position end_pos = reader::position(),
-                     match_result_value* value = nullptr,
+                     std::shared_ptr<match_result_value> value = std::shared_ptr<match_result_value>(nullptr),
                      error err = error()): match(match), begin_pos(begin_pos), end_pos(end_pos), value(value), err(err) {
         }
         
@@ -181,9 +182,6 @@ namespace pamapar {
     };
 
     class context {
-        // Value keep is used to store match result values so they can be released in one pass
-        // when we are done with them
-        std::vector<match_result_value*> value_keep;
         
     public:
         // Keep track of match result errors, use transform to push errors, can be
@@ -191,13 +189,6 @@ namespace pamapar {
         std::vector<match_result> error_stack;
         
         ~context() {
-            for (auto it = value_keep.begin(); it != value_keep.end(); ++it) {
-                delete *it;
-            }
-        }
-        
-        void push_value(match_result_value* value) {
-            value_keep.push_back(value);
         }
         
         void push_error(match_result result) {
@@ -246,9 +237,7 @@ namespace pamapar {
             
             result.match = true;
             result.end_pos = r.current_position();
-            result.value = new string_value(r.string());
-            
-            ctx.push_value(result.value);
+            result.value = std::shared_ptr<match_result_value>(new string_value(r.string()));
             
             transform(result, ctx);
             
@@ -283,9 +272,7 @@ namespace pamapar {
             }
             
             result.match = true;
-            result.value = new string_value(r.string());
-            
-            ctx.push_value(result.value);
+            result.value = std::shared_ptr<match_result_value>(new string_value(r.string()));
             
             transform(result, ctx);
             r.pop_state();
@@ -341,6 +328,7 @@ namespace pamapar {
         std::vector<pattern*> patterns;
         
     public:
+        concatenation() {}
         concatenation(std::vector<pattern*> patterns): patterns(patterns) {}
         
         match_result match(reader &r, context& ctx) override {
@@ -365,9 +353,7 @@ namespace pamapar {
             
             result.match = true;
             result.end_pos = r.current_position();
-            result.value = new matches_value(matches);
-            
-            ctx.push_value(result.value);
+            result.value = std::shared_ptr<match_result_value>(new matches_value(matches));
             
             transform(result, ctx);
             
@@ -420,9 +406,7 @@ namespace pamapar {
             }
             
             result.match = true;
-            result.value = new matches_value(matches);
-            
-            ctx.push_value(result.value);
+            result.value = std::shared_ptr<match_result_value>(new matches_value(matches));
             
             transform(result, ctx);
             
