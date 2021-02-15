@@ -11,6 +11,9 @@
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <sstream>
+#include <iostream>
+#include <iomanip>
 
 namespace pamapar {
     // https://stackoverflow.com/questions/2342162/stdstring-formatting-like-sprintf
@@ -21,6 +24,13 @@ namespace pamapar {
         std::unique_ptr<char[]> buf( new char[ size ] );
         snprintf( buf.get(), size, format.c_str(), args ... );
         return std::string( buf.get(), buf.get() + size - 1 ); // We don't want the '\0' inside
+    }
+
+    std::string unquote(const std::string& s) {
+      std::string result;
+      std::istringstream ss(s);
+      ss >> std::quoted(result);
+      return result;
     }
 }
 

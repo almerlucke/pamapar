@@ -155,16 +155,18 @@ namespace pamapar {
 
     struct match_result {
         bool match = false;
+        bool partial_match = false;
         reader::position begin_pos = reader::position();
         reader::position end_pos = reader::position();
         std::shared_ptr<match_result_value> value;
         error err = error();
         
         match_result(bool match = false,
+                     bool partial_match = false,
                      reader::position begin_pos = reader::position(),
                      reader::position end_pos = reader::position(),
                      std::shared_ptr<match_result_value> value = std::shared_ptr<match_result_value>(nullptr),
-                     error err = error()): match(match), begin_pos(begin_pos), end_pos(end_pos), value(value), err(err) {
+                     error err = error()): match(match), partial_match(partial_match), begin_pos(begin_pos), end_pos(end_pos), value(value), err(err) {
         }
         
         std::string string_from_reader(reader& r) {
@@ -206,7 +208,7 @@ namespace pamapar {
         virtual match_result match(reader& r, context& ctx) = 0;
         
         // Can be implemented by subclasses
-        virtual void transform(match_result& m, context& ctx) {
+        virtual void transform(match_result& m, reader& r, context& ctx) {
             // empty stub, you would typically transform the value here
         }
     };
@@ -227,7 +229,7 @@ namespace pamapar {
         }
         
         match_result match(reader& r, context& ctx) override {
-            match_result result(false, r.current_position());
+            match_result result(false, false, r.current_position());
             
             r.push_state();
             
@@ -236,7 +238,7 @@ namespace pamapar {
                 
                 if (*it != c) {
                     result.end_pos = r.current_position();
-                    transform(result, ctx);
+                    transform(result, r, ctx);
                     r.restore_state();
                     return result;
                 }
@@ -246,7 +248,7 @@ namespace pamapar {
             result.end_pos = r.current_position();
             result.value = std::shared_ptr<match_result_value>(new string_value(r.string()));
             
-            transform(result, ctx);
+            transform(result, r, ctx);
             
             r.pop_state();
             
@@ -268,7 +270,7 @@ namespace pamapar {
         }
         
         match_result match(reader &r, context& ctx) override {
-            match_result result(false, r.current_position());
+            match_result result(false, false, r.current_position());
             
             r.push_state();
             
@@ -276,8 +278,14 @@ namespace pamapar {
             
             result.end_pos = r.current_position();
             
-            if (EOF == c || !(is_member(c) || inverted)) {
-                transform(result, ctx);
+            bool member = is_member(c);
+            
+            if (inverted) {
+                member = !member;
+            }
+            
+            if (EOF == c || !member) {
+                transform(result, r, ctx);
                 r.restore_state();
                 return result;
             }
@@ -285,7 +293,7 @@ namespace pamapar {
             result.match = true;
             result.value = std::shared_ptr<match_result_value>(new string_value(r.string()));
             
-            transform(result, ctx);
+            transform(result, r, ctx);
             r.pop_state();
             
             return result;
@@ -325,21 +333,21 @@ namespace pamapar {
                 auto result = pattern->match(r, ctx);
                 
                 if (result.match) {
-                    transform(result, ctx);
+                    transform(result, r, ctx);
                     return result;
                 }
             }
             
-            match_result result = match_result(false, begin_pos, begin_pos);
+            match_result result = match_result(false, false, begin_pos, begin_pos);
             
-            transform(result, ctx);
+            transform(result, r, ctx);
             
             return result;
         }
     };
 
     class concatenation: public pattern {
-    private:
+    protected:
         pattern_vector patterns;
         
     public:
@@ -351,8 +359,9 @@ namespace pamapar {
         }
         
         match_result match(reader &r, context& ctx) override {
-            match_result result(false, r.current_position());
+            match_result result(false, false, r.current_position());
             std::vector<match_result> matches;
+            bool partial_match = false;
             
             r.push_state();
             
@@ -361,11 +370,15 @@ namespace pamapar {
                 auto sub_result = pattern->match(r, ctx);
                 
                 if (!sub_result.match) {
+                    result.partial_match = partial_match;
                     result.end_pos = r.current_position();
-                    transform(result, ctx);
+                    transform(result, r, ctx);
+                    
                     r.restore_state();
                     return result;
                 }
+                
+                partial_match = true;
                 
                 matches.push_back(sub_result);
             }
@@ -374,7 +387,7 @@ namespace pamapar {
             result.end_pos = r.current_position();
             result.value = std::shared_ptr<match_result_value>(new matches_value(matches));
             
-            transform(result, ctx);
+            transform(result, r, ctx);
             
             r.pop_state();
             
@@ -396,7 +409,7 @@ namespace pamapar {
         }
         
         match_result match(reader &r, context &ctx) override {
-            match_result result(false, r.current_position());
+            match_result result(false, false, r.current_position());
             std::vector<match_result> matches;
             
             r.push_state();
@@ -423,7 +436,7 @@ namespace pamapar {
             
             if (matches.size() < min) {
                 result.err = error(string_format("expected minimum of %d repetitions", min));
-                transform(result, ctx);
+                transform(result, r, ctx);
                 r.restore_state();
                 return result;
             }
@@ -431,7 +444,7 @@ namespace pamapar {
             result.match = true;
             result.value = std::shared_ptr<match_result_value>(new matches_value(matches));
             
-            transform(result, ctx);
+            transform(result, r, ctx);
             
             r.pop_state();
             
@@ -475,7 +488,7 @@ namespace pamapar {
             if (result.match) {
                 result.match = false;
                 
-                transform(result, ctx);
+                transform(result, r, ctx);
                 
                 r.restore_state();
                 
@@ -486,13 +499,14 @@ namespace pamapar {
             
             result = must_match->match(r, ctx);
             
-            transform(result, ctx);
+            transform(result, r, ctx);
             
             return result;
         }
     };
 
     class eof: public pattern {
+    public:
         static pattern_ptr make_shared() {
             return pattern_ptr(new eof());
         }
@@ -500,7 +514,7 @@ namespace pamapar {
         match_result match(reader &r, context &ctx) override {
             match_result result = match_result(r.finished());
            
-            transform(result, ctx);
+            transform(result, r, ctx);
             
             return result;
         }

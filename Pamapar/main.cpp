@@ -9,30 +9,9 @@
 #include <vector>
 #include <memory>
 #include "pamapar.h"
-
-/*
- func jsonStringTransform(m *MatchResult, r *Reader) error {
-     if !m.Match {
-         if m.PartialMatch {
-             m.Error = errors.New("not a valid string")
-             r.PushError(m)
-         }
-         return nil
-     }
-
-     value, err := strconv.Unquote(r.StringFromResult(m))
-     if err != nil {
-         return err
-     }
-
-     m.Result = value
-
-     return nil
- }
- */
+#include "helpers/string/string.h"
 
 class json_string_pattern: public pamapar::concatenation {
-    
 public:
     json_string_pattern() {
         auto hex_digit = pamapar::alternation::make_shared(pamapar::pattern_vector{
@@ -53,50 +32,54 @@ public:
                 hex_pattern
             })
         });
+        
+        auto normal_code_point = pamapar::character_group::make_shared([](pamapar::rune r) {
+            return iscntrl(r) || r == '\\' || r == '"';
+        }, true);
+        
+        this->patterns = pamapar::pattern_vector{
+            pamapar::terminal_string::make_shared("\""),
+            pamapar::repetition::make_shared(pamapar::alternation::make_shared(pamapar::pattern_vector{
+                normal_code_point, escape_sequence
+            })),
+            pamapar::terminal_string::make_shared("\"")
+        };
+    }
+    
+    static pamapar::pattern_ptr make_shared() {
+        return pamapar::pattern_ptr(new json_string_pattern());
+    }
+    
+    void transform(pamapar::match_result& m, pamapar::reader& r, pamapar::context& ctx) override {
+        if (!m.match) {
+            if (m.partial_match) {
+                auto str = m.string_from_reader(r);
+                std::cout << "partial: " << str << std::endl;
+                m.err = pamapar::error("not a valid string");
+                ctx.push_error(m);
+            }
+            
+            return;
+        }
+        
+        auto str = pamapar::unquote(m.string_from_reader(r));
+        
+        m.value = std::shared_ptr<pamapar::match_result_value>(new pamapar::string_value(str));
     }
 };
 
-//pamapar::concatenation json_string_pattern() {
-//
-//}
-
-/*
- func jsonStringPattern() Pattern {
-
-     normalCodePoint := NewCharacterGroup(func(r rune) bool {
-         return unicode.IsControl(r) || r == '\\' || r == '"'
-     }, true, nil)
-
-     return NewConcatenation(
-         []Pattern{
-             NewTerminalString(`"`, nil),
-             NewAny(NewAlternation([]Pattern{normalCodePoint, escapeSequence}, nil), nil),
-             NewTerminalString(`"`, nil),
-         },
-         jsonStringTransform,
-     )
- }
- */
-
 int main(int argc, const char * argv[]) {
     pamapar::context context;
-    auto reader = pamapar::reader("121288z");
+    auto reader = pamapar::reader("\"dit is een test man\"");
     
-    auto character_member_group = new pamapar::character_group(pamapar::character_group::member_of("128"));
-    auto character_member_group_ptr = std::shared_ptr<pamapar::pattern>(character_member_group);
+    auto json_string = json_string_pattern::make_shared();
     
-    auto repeat = pamapar::repetition(character_member_group_ptr, 3, 4);
-    
-    auto result = repeat.match(reader, context);
+    auto result = json_string->match(reader, context);
     
     if (result.match) {
-        auto matches = std::dynamic_pointer_cast<pamapar::matches_value>(result.value)->value;
-        
-        for (auto it = matches.begin(); it != matches.end(); ++it) {
-            auto str = std::dynamic_pointer_cast<pamapar::string_value>((*it).value)->value;
+        auto str = std::dynamic_pointer_cast<pamapar::string_value>(result.value)->value;
             
-            std::cout << str << std::endl;
-        }
+        std::cout << str << std::endl;
     } else {
         std::cout << result.err.reason << std::endl;
     }
